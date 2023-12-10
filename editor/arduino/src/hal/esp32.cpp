@@ -24,8 +24,6 @@ uint8_t pinMask_AIN[] = {PINMASK_AIN};
 uint8_t pinMask_DOUT[] = {PINMASK_DOUT};
 uint8_t pinMask_AOUT[] = {PINMASK_AOUT};
 
-    #define PWM_DEFAULT_FREQ      490
-
     #define NUM_OF_PWM_PINS       8 //only 8 pins possible with independent frequency
 
     #define PWM_CHANNEL_0_PIN     4
@@ -46,7 +44,14 @@ uint8_t pinMask_AOUT[] = {PINMASK_AOUT};
     #define TIMER_CHANNEL_6       12
     #define TIMER_CHANNEL_7       14
 
-    #define PWM_RESOLUTION        12 //12-bit
+    #define PWM_RESOLUTION        10 //10-bit
+ // Max resolution is 20-bit 
+ // Resolution 65536 (16-bit) for lower frequencies, OK @ 1K 
+ // Resolution  4096 (12-bit) for lower frequencies, OK @ 10K 
+ // Resolution  1024 (10-bit) for higher frequencies, OK @ 50K 
+ // Resolution  256  ( 8-bit)for higher frequencies, OK @ 100K, 200K 
+ // Resolution  128  ( 7-bit) for higher frequencies, OK @ 500K 
+
 
 
     ESP32_FAST_PWM *PWM_Instance[NUM_OF_PWM_PINS];
@@ -58,8 +63,6 @@ uint8_t pinMask_AOUT[] = {PINMASK_AOUT};
                               TIMER_CHANNEL_4, TIMER_CHANNEL_5, TIMER_CHANNEL_6, TIMER_CHANNEL_7};
 
 extern "C" uint8_t set_hardware_pwm(uint8_t, float, float); //this call is required for the C-based PWM block on the Editor
-
-bool pwm_initialized = false;
 
 void hardwareInit()
 {
@@ -84,67 +87,25 @@ void hardwareInit()
     }
 }
 
-void init_pwm()
-{
-    // Initialize PWM pins
-    for (int i = 0; i < NUM_OF_PWM_PINS; i++)
-    {
-    PWM_Instance[i] = new ESP32_FAST_PWM(pins[i], PWM_DEFAULT_FREQ, 0, timers[i], PWM_RESOLUTION); //12 bit resolution
-
-        // disable digital in pins if PWM_CONTROLLER block is being used
-        for (int j = 0; j < NUM_DISCRETE_INPUT; j++)
-        {
-            if (pinMask_DIN[j] == pins[i])
-            {
-                pinMask_DIN[j] = 255; //disable pin
-            }
-        }
-
-        // disable digital out pins if PWM_CONTROLLER block is being used
-        for (int j = 0; j < NUM_DISCRETE_OUTPUT; j++)
-        {
-            if (pinMask_DOUT[j] == pins[i])
-            {
-                pinMask_DOUT[j] = 255; //disable pin
-            }
-        }
-
-        // disable analog in pins if PWM_CONTROLLER block is being used	
-        for (int j = 0; j < NUM_ANALOG_INPUT; j++)
-        {
-            if (pinMask_AIN[j] == pins[i])
-            {
-                pinMask_AIN[j] = 255; //disable pin
-            }
-        }
-
-        // disable analog out pins if PWM_CONTROLLER block is being used
-        for (int j = 0; j < NUM_ANALOG_OUTPUT; j++)
-        {
-            if (pinMask_AOUT[j] == pins[i])
-            {
-                pinMask_AOUT[j] = 255; //disable pin
-            }
-        }
-    }
-}
-
+//PWM function
 uint8_t set_hardware_pwm(uint8_t ch, float freq, float duty)
 {
-
-    if (pwm_initialized == false)
-    {
-        init_pwm();
-        pwm_initialized = true;
-    }
-
-
     if (ch >= NUM_OF_PWM_PINS)
     {
-        return 0;
+        return 0; // Invalid channel number
     }
 
-    if (PWM_Instance[ch]->setPWM(pins[ch], freq, duty))
+	// get the pwm pin
+    uint8_t pwm_pin = pins[ch];
+
+    // Initialize the PWM instance if not already done
+    if (PWM_Instance[ch] == nullptr)
+    {
+        PWM_Instance[ch] = new ESP32_FAST_PWM(pwm_pin, freq, duty, timers[ch], PWM_RESOLUTION);
+        // Disables the pin for other uses as before
+	}
+	// Update the PWM instance if already exists
+    else if (PWM_Instance[ch]->setPWM(pwm_pin, freq, duty))
     {
         return 1;
     }
@@ -152,17 +113,18 @@ uint8_t set_hardware_pwm(uint8_t ch, float freq, float duty)
     return 0;
 }
 
+
 void updateInputBuffers()
 {
     for (int i = 0; i < NUM_DISCRETE_INPUT; i++)
     {
-        if (bool_input[i/8][i%8] != NULL) 
+        if (bool_input[i/8][i%8] != nullptr) 
             *bool_input[i/8][i%8] = digitalRead(pinMask_DIN[i]);
     }
     
     for (int i = 0; i < NUM_ANALOG_INPUT; i++)
     {
-        if (int_input[i] != NULL)
+        if (int_input[i] != nullptr)
             *int_input[i] = (analogRead(pinMask_AIN[i]) * 16);
     }
 }
@@ -171,12 +133,12 @@ void updateOutputBuffers()
 {
     for (int i = 0; i < NUM_DISCRETE_OUTPUT; i++)
     {
-        if (bool_output[i/8][i%8] != NULL) 
+        if (bool_output[i/8][i%8] != nullptr) 
             digitalWrite(pinMask_DOUT[i], *bool_output[i/8][i%8]);
     }
     for (int i = 0; i < NUM_ANALOG_OUTPUT; i++)
     {
-        if (int_output[i] != NULL) 
+        if (int_output[i] != nullptr) 
             dacWrite(pinMask_AOUT[i], (*int_output[i] / 256));
     }
 }
